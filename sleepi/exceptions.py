@@ -1,13 +1,13 @@
 
-"""Exceptions for Elgato Key Lights."""
+"""Exceptions for Sleepi."""
 
 
 class SleepiError(Exception):
-    """Generic Elgato Key Light exception."""
+    """Generic Sleepi exception."""
 
 class SleepiConnectionError(SleepiError):
-    """Elgato Key Light connection exception."""
+    """Sleepi connection exception."""
 
 
 class SleepiGenericError(Exception):
-    """Generic WLED exception."""
+    """Generic Sleepi exception."""

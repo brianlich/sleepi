@@ -1,8 +1,6 @@
 """ Models for Sleepi """
 from typing import Any, Dict, List
 from attr import dataclass
-from distutils.util import strtobool
-import json
 
 
 @dataclass
