@@ -111,3 +111,5 @@ target/
 # Cookiecutter
 output/
 python_boilerplate/
+
+examples/test.py
