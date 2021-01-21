@@ -1,37 +1,26 @@
 """ Define the Sleepi API """
 import asyncio
 import logging
-
 import aiohttp
 
-from typing import List, Optional
-
-from aiohttp import ClientSession
-from aiohttp.client_exceptions import ClientError
-from datetime import datetime, timedelta
+from .const import (
+    BED_LIGHTS,
+)
 from .exceptions import SleepiConnectionError, SleepiError, SleepiGenericError
 from .models import Bed, FamilyStatus, Foundation, Foundation_Status, Light, Side, Sleeper
 
+from aiohttp import ClientSession
+from aiohttp.client_exceptions import ClientError
+from datetime import timedelta
+from typing import Optional
+
+
 BASE_URL = "https://prod-api.sleepiq.sleepnumber.com/rest"
-
-_LOGGER = logging.getLogger(__name__)
 DEFAULT_STATE_UPDATE_INTERVAL = timedelta(seconds=5)
-
 DEFAULT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.95 Safari/537.36'}
+_LOGGER = logging.getLogger(__name__)
 
-RIGHT_NIGHT_STAND = 1
-LEFT_NIGHT_STAND = 2
-RIGHT_NIGHT_LIGHT = 3
-LEFT_NIGHT_LIGHT = 4
-
-BED_LIGHTS = [
-        RIGHT_NIGHT_STAND,
-        LEFT_NIGHT_STAND,
-        RIGHT_NIGHT_LIGHT,
-        LEFT_NIGHT_LIGHT
-    ]
-
-class API:
+class SleepIQ:
     """ Define a class for interacting with the SleepIQ REST APIs """
     def __init__(
         self,
@@ -43,10 +32,8 @@ class API:
         self._username = username
         self._password = password
         self._websession = websession
+        self._bedId: str = None
         self._key = None
-
-        # self.login()
-        # self._first_bed_id: int = None
         
     async def login(self):
         """ Log into the API """
@@ -71,7 +58,7 @@ class API:
         else:
             return False
 
-    async def _request(
+    async def __request(
         self,
         endpointName: str,
         params: Optional[dict] = {},
@@ -79,7 +66,7 @@ class API:
         data: Optional[dict] = None,
         ):
         """ Send a REST call to the SleepIQ instance """
-        method = "GET" if method is None else "PUT"
+        method = "GET" if data is None else "PUT"
         url = BASE_URL + "/" + endpointName
         headers = DEFAULT_HEADERS
 
@@ -110,7 +97,6 @@ class API:
                 else:
                     self.login()
             if response.status == 401: # 401 Unauthorized
-                # Login
                 self.login()
             elif response.status == 502:  # 502 Session Invalid
                 self.login()
@@ -140,96 +126,126 @@ class API:
 
         return await response.json()
 
-    async def bed(self) -> Bed:
-        """ Get the latest bed information from SleepIQ """
-        data = await self._request("bed")
-        return Bed.from_dict(data)
-
-    # async def beds(self):
-    #     """ Get the latest bed information from SleepIQ """
-    #     # beds = []
-    #     data = await self._request("bed")
-    #     # for bed in data["beds"]:
-    #         # self._first_bed_id = data["bedId"]
-    #         # beds.append(Bed.from_dict(data["beds"]))
-    #     return data
-
-    async def sleeper(self, data) -> Sleeper:
-        """ Get the latest bed information from SleepIQ """
-        return Sleeper.from_dict(data)
-
-    async def sleepers(self):
+    async def get_sleepers(self):
         """ Sleepers """
         sleepers = []
-        data = await self._request("sleeper")
+        data = await self.__request("sleeper")
         for side in data["sleepers"]:
             sleepers.append(Sleeper.from_dict(side))
         return sleepers
 
-    async def foundations(self, bed: Bed):
+    async def get_foundation(self, bed: Bed):
         """ Foundations """
-        # foundations = []
-        # bed: Bed
-        # for bed in beds:
         endpoint = "bed/" + bed.bedId + "/foundation/system"
-        data = await self._request(endpoint)
-        # foundations.append(Foundation.from_dict(data, bed.bedId))
+        data = await self.__request(endpoint)
+        return Foundation.from_dict(data)
 
-        # return foundations
-        return Foundation.from_dict(data, bed.bedId)
-
-    async def foundation_status(self, bed: Bed):
+    async def get_foundation_status(self, bed: Bed):
         """ Foundations """
-        # foundation_status = []
-
-        # bed: Bed
-        # for bed in beds:
         endpoint = "bed/" + bed.bedId + "/foundation/status"
-        data = await self._request(endpoint)
-        # foundation_status.append(Foundation_Status.from_dict(data, bed.bedId))
+        data = await self.__request(endpoint)
+        return Foundation_Status.from_dict(data)
 
-        # return foundation_status
-        return Foundation_Status.from_dict(data, bed.bedId)
-
-    async def family_status(self):
+    async def get_family_status(self):
         """ Family status """
         family_status = []
-        data: FamilyStatus = await self._request("bed/familyStatus")
-        # for bed in data:
-        family_status.append(Side.from_dict(data["beds"][0]["leftSide"], "left", data["beds"][0]["bedId"]))
-        family_status.append(Side.from_dict(data["beds"][0]["rightSide"], "right", data["beds"][0]["bedId"]))
+        data: FamilyStatus = await self.__request("bed/familyStatus")
+        family_status.append(Side.from_dict(data["beds"][0]["leftSide"], "left"))
+        family_status.append(Side.from_dict(data["beds"][0]["rightSide"], "right"))
         return family_status
 
-    async def lights(self, bed: Bed):
+    async def turn_on_light(
+        self,
+        outletID: int,
+        ):
+        """ Turn on a light """
+        if self._bedId == None:
+            await self.get_bed_id()
+        endpoint = "bed/" + self._bedId + "/foundation/outlet"
+        data = {"outletId": outletID, "setting": 1}
+        response = await self.__request(endpoint, data=data)
+
+    async def turn_off_light(
+        self,
+        outletID: int,
+        ):
+        """ Turn off a light """
+        if self._bedId == None:
+            await self.get_bed_id()
+        endpoint = "bed/" + self._bedId + "/foundation/outlet"
+        data = {"outletId": outletID, "setting": 0}
+        response = await self.__request(endpoint, data=data)
+
+    async def get_light_status(
+        self,
+        outletID: int,
+        ):
+        """ Get the status of a light """
+        if self._bedId == None:
+            await self.get_bed_id()
+
+        endpoint = "bed/" + self._bedId + "/foundation/outlet"
+        params = {"outletId": outletID}
+        data = await self.__request(endpoint, params)
+
+    async def get_bed_id(self):
+        data = await self.__request("bed")
+        self._bedId = str(data["beds"][0]["bedId"]) 
+
+    async def get_bed(self) -> Bed:
+        """ Get the latest bed information from SleepIQ """
+        data = await self.__request("bed")
+        return Bed.from_dict(data)
+
+    async def toggle_light(
+        self,
+        outletID: int,
+        ):
+        """ Get the status of a light """
+        status = await self.get_light_status(3)
+        if self._bedId == None:
+            await self.get_bed_id()
+        
+        endpoint = "bed/" + self._bedId + "/foundation/outlet"
+        data = await self.__request(endpoint)
+        if data["setting"] is True:
+            self.turn_off_light(3)
+        else:
+            self.turn_on_light(3)
+
+    async def get_lights(self, bed: Bed):
         """ A collection of lights """
         lights = []
-
-        # bed: Bed
-        # for bed in beds:
         endpoint = "bed/" + bed.bedId + "/foundation/outlet"
 
         for light in BED_LIGHTS:
             params = {"outletId": light}
-            data = await self._request(endpoint, params)
+            data = await self.__request(endpoint, params)
+
+            name: str
+            if light == 1:
+                name = "Sleep Number right nightstand"
+            elif light == 2:
+                name = "Sleep Number left nightstand"
+            elif light == 3:
+                name = "Sleep Number left nightlight"
+            elif light == 4:
+                name = "Sleep Number right nightlight"
+            else:
+                _LOGGER.debug("An unknown light was found. OutletID: %s", str(light))
+                name = ""
 
             if data is not None:
-                lights.append(Light.from_dict(data))
+                lights.append(Light.from_dict(data, name))
 
         return lights
-
-    async def light(self, data):
-        """ A light """
-        return Light.from_dict(data)
 
     def __feature_check(self, value, digit):
         return ((1 << digit) & value) > 0
 
-    async def foundation_features(self, bed: Bed):
+    async def get_foundation_features(self, bed: Bed):
         """ Foundation features """
         foundation_features = []
-
-        # bed: Bed
-        # for bed in beds:
         board_features: int = bed.foundation.fsBoardFeatures
         bed_type: int = bed.foundation.fsBedType
         data = {}
@@ -242,7 +258,6 @@ class API:
         elif bed_type == 3:
             data['easternKing'] = True
 
-        data["bedId"] = bed.bedId
         data['boardIsASingle'] = self.__feature_check(board_features, 0)
         data['hasMassageAndLight'] = self.__feature_check(board_features, 1)
         data['hasFootControl'] = self.__feature_check(board_features, 2)
@@ -258,51 +273,37 @@ class API:
             data['boardIsASingle'] = False
 
         foundation_features.append(data)
-
         return foundation_features
     
-    async def fetch_data(self) -> Bed:
+    async def fetch_homeassistant_data(self) -> Bed:
         """ Fetch the latest data from SleepIQ """
-        # try:
-        bed: Bed = await self.bed()
-        family_status: FamilyStatus = await self.family_status()
-        sleepers = await self.sleepers()
-        lights = await self.lights(bed)
-        foundation:Foundation = await self.foundations(bed)
-        foundation_status: Foundation_Status = await self.foundation_status(bed)
-
+        bed: Bed = await self.get_bed()
+        family_status: FamilyStatus = await self.get_family_status()
+        sleepers = await self.get_sleepers()
+        bed.lights = await self.get_lights(bed)
+        foundation: Foundation = await self.get_foundation(bed)
+        bed.foundation = foundation
+        foundation_status: Foundation_Status = await self.get_foundation_status(bed)
+        bed.foundation.foundation_status = foundation_status
+        foundation_features = await self.get_foundation_features(bed)
         side: Side
         sleeper: Sleeper
-        light: Light
-        # for bed in beds:
-        for light in lights:
-            if bed.bedId == light.bedId:
-                bed.lights.append(light)
-        # for foundation in foundations:
-        if bed.bedId == foundation.bedId:
-            bed.foundation = foundation
-            if bed.bedId == foundation_status.bedId:
-                bed.foundation.status = foundation_status
-        for side in family_status:
-            if bed.bedId == side.bedId:
-                if side.side.lower() == "left":
-                    bed.left_side = side
-                    for sleeper in sleepers:
-                        if bed.sleeperLeftId == sleeper.sleeperId:
-                            side.sleeper = sleeper
-                if side.side.lower() == "right":
-                    bed.right_side = side
-                    for sleeper in sleepers:
-                        if bed.sleeperRightId == sleeper.sleeperId:
-                            side.sleeper = sleeper
-    
-        foundation_features = await self.foundation_features(bed)
+
         for foundation_feature in foundation_features:
-            # if bed.bedId == foundation_feature.bedId:
             bed.foundation.features = foundation_feature
-            
-        # except:
-            # raise SleepiGenericError(logging.exception)
+
+        for side in family_status:
+            if side.side == "left":
+                bed.left_side = side
+                for sleeper in sleepers:
+                    if bed.sleeperLeftId == sleeper.sleeperId:
+                        side.sleeper = sleeper
+            else:
+                bed.right_side = side
+                for sleeper in sleepers:
+                    if bed.sleeperRightId == sleeper.sleeperId:
+                        side.sleeper = sleeper
+
         return bed
 
 

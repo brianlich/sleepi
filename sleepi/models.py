@@ -72,11 +72,10 @@ class Side:
     lastLink: str
     pressure: int
     side: str
-    bedId: str
     sleeper: Sleeper
 
     @staticmethod
-    def from_dict(data: Dict[str, Any], left_or_right: str, bedId: str):
+    def from_dict(data: Dict[str, Any], left_or_right: str):
         """ Return a bed object from the SleepIQ servers """
         return Side(
             isInBed = data["isInBed"],
@@ -86,7 +85,6 @@ class Side:
             lastLink = data["lastLink"],
             pressure = data["pressure"],
             side = left_or_right,
-            bedId = bedId,
             sleeper = None
         )
 
@@ -117,7 +115,6 @@ class FamilyStatus:
         return FamilyStatus(
             left_side = data["left_side"],
             right_side = data["right_side"],
-            # bed = data["bed"],
         )
 
 
@@ -128,16 +125,18 @@ class Light:
     outlet: int
     setting: int
     timer: str
+    name: str
 
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]):
+    def from_dict(data: Dict[str, Any], name):
         """ Return a light object from the SleepIQ servers """
         return Light(
             bedId = data["bedId"],
             outlet = data["outlet"],
             setting = data["setting"],
             timer = data["timer"],
+            name = name,
         )
 
 # @dataclass
@@ -180,10 +179,9 @@ class Foundation_Status:
     fsRightPositionTimerMSB: str
     fsLeftHeadActuatorMotorStatus: str
     fsLeftFootActuatorMotorStatus: str
-    bedId: str
 
     @staticmethod
-    def from_dict(data: Dict[str, Any], bedId: str):
+    def from_dict(data: Dict[str, Any]):
         """ Return a foundation object from the SleepIQ servers """
         return Foundation_Status(
         fsCurrentPositionPresetRight = data["fsCurrentPositionPresetRight"],
@@ -211,7 +209,6 @@ class Foundation_Status:
         fsRightPositionTimerMSB = data["fsRightPositionTimerMSB"],
         fsLeftHeadActuatorMotorStatus = data["fsLeftHeadActuatorMotorStatus"],
         fsLeftFootActuatorMotorStatus = data["fsLeftFootActuatorMotorStatus"],
-        bedId = bedId,
         )
 
 @dataclass
@@ -224,12 +221,11 @@ class Foundation:
     fsBoardStatus: int
     fsLeftUnderbedLightPWM: int
     fsRightUnderbedLightPWM: int
-    bedId: str
     foundation_status: Foundation_Status
     features: Dict
 
     @staticmethod
-    def from_dict(data: Dict[str, Any], bedId: str):
+    def from_dict(data: Dict[str, Any]):
         """ Return a foundation object from the SleepIQ servers """
         return Foundation(
             fsBedType = data["fsBedType"],
@@ -239,7 +235,6 @@ class Foundation:
             fsBoardStatus = data["fsBoardStatus"],
             fsLeftUnderbedLightPWM = data["fsLeftUnderbedLightPWM"],
             fsRightUnderbedLightPWM =  data["fsRightUnderbedLightPWM"],
-            bedId = bedId,
             foundation_status = None,
             features = {},
         )
@@ -271,7 +266,7 @@ class Bed:
     reference: str
     left_side: Side
     right_side: Side
-    lights: List
+    lights: list
     foundation: Foundation
 
     @staticmethod

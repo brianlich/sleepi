@@ -1,5 +1,5 @@
 """ Module-level Imports """
-from .api import API #noqa
+from .sleepiq import SleepIQ #noqa
 from .exceptions import ( #noqa
     SleepiConnectionError,
     SleepiError,
