@@ -31,6 +31,7 @@ class Sleeper:
     email: str
     lastLogin: str
     side: int
+    favorite: int
 
     @staticmethod
     def from_dict(data: Dict[str, Any]):
@@ -59,7 +60,8 @@ class Sleeper:
             isAccountOwner = data["isAccountOwner"],
             email = data["email"],
             lastLogin = data["lastLogin"],
-            side = data["side"]
+            side = data["side"],
+            favorite = None
         )
 
 @dataclass
@@ -103,6 +105,22 @@ class Status:
         )
 
 @dataclass
+class SleepNumberFavorite:
+    """ Familystatus """
+    bedId: str
+    sleepNumberFavoriteRight: int
+    sleepNumberFavoriteLeft: int
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]):
+        """ Return a SleepNumberFavorite object from the SleepIQ servers """
+        return SleepNumberFavorite(
+            bedId = data["bedId"],
+            SleepNumberFavoriteRight = data["SleepNumberFavoriteRight"],
+            SleepNumberFavoriteLeft = data["SleepNumberFavoriteLeft"],
+        )
+
+@dataclass
 class FamilyStatus:
     """ Familystatus """
     left_side: Side
@@ -131,25 +149,14 @@ class Light:
     @staticmethod
     def from_dict(data: Dict[str, Any], name):
         """ Return a light object from the SleepIQ servers """
-        return Light(
-            bedId = data["bedId"],
-            outlet = data["outlet"],
-            setting = data["setting"],
-            timer = data["timer"],
-            name = name,
-        )
-
-# @dataclass
-# class Foundation_Features:
-#     """ Defines a foundation status """
-
-
-#     @staticmethod
-#     def from_dict(data: Dict[str, Any]):
-#         """ Return a foundation object from the SleepIQ servers """
-#         return Foundation_Features(
-
-#         )
+        if data is not None:
+            return Light(
+                bedId = data["bedId"],
+                outlet = data["outlet"],
+                setting = data["setting"],
+                timer = data["timer"],
+                name = name,
+            )
 
 @dataclass
 class Foundation_Status:
@@ -266,7 +273,10 @@ class Bed:
     reference: str
     left_side: Side
     right_side: Side
-    lights: list
+    light1: Dict 
+    light2: Dict
+    light3: Dict
+    light4: Dict
     foundation: Foundation
 
     @staticmethod
@@ -297,6 +307,9 @@ class Bed:
             reference = data["beds"][0]["reference"],
             left_side = None,
             right_side = None,
-            lights = [],
+            light1 = {},
+            light2 = {},
+            light3 = {},
+            light4 = {},
             foundation = None,
         )

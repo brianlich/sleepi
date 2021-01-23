@@ -34,7 +34,9 @@ class SleepIQ:
         self._websession = websession
         self._bedId: str = None
         self._key = None
-        
+
+        # self.login(username, password, websession)
+
     async def login(self):
         """ Log into the API """
         if not self._username or not self._password:
@@ -95,15 +97,19 @@ class SleepIQ:
                 if "foundation/outlet" in url:
                     return None
                 else:
-                    self.login()
+                    await self.login()
+                    _LOGGER.error("404 error") 
             if response.status == 401: # 401 Unauthorized
-                self.login()
+                _LOGGER.error("401 error") 
+                await self.login()
             elif response.status == 502:  # 502 Session Invalid
-                self.login()
+                await self.login()
+                _LOGGER.error("502 error") 
             elif response.status == 503:  # 503 Server Error
-                response.raise_for_status()
+                await response.raise_for_status()
+                _LOGGER.error("503 error") 
             elif response.status == 400:  # 400 bad request
-                response.raise_for_status()
+                await response.raise_for_status()
         except asyncio.TimeoutError as exception:
             raise SleepiConnectionError(
                 "Timeout occurred while connecting to the SleepIQ servers"
@@ -188,6 +194,19 @@ class SleepIQ:
         params = {"outletId": outletID}
         data = await self.__request(endpoint, params)
 
+        if outletID == 1:
+            name = "Sleep Number right night stand"
+        elif outletID == 2:
+            name = "Sleep Number left night stand"
+        elif outletID == 3:
+            name = "Sleep Number left night light"
+        elif outletID == 4:
+            name = "Sleep Number right night light"
+        else:
+            name = ""
+            _LOGGER.error("An unknown light was found. OutletID: %s", str(outletID))
+        return Light.from_dict(data, name)
+
     async def get_bed_id(self):
         data = await self.__request("bed")
         self._bedId = str(data["beds"][0]["bedId"]) 
@@ -202,43 +221,73 @@ class SleepIQ:
         outletID: int,
         ):
         """ Get the status of a light """
-        status = await self.get_light_status(3)
+        status = await self.get_light_status(outletID)
         if self._bedId == None:
             await self.get_bed_id()
         
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
         data = await self.__request(endpoint)
         if data["setting"] is True:
-            self.turn_off_light(3)
+            self.turn_off_light(outletID)
         else:
-            self.turn_on_light(3)
+            self.turn_on_light(outletID)
 
-    async def get_lights(self, bed: Bed):
-        """ A collection of lights """
-        lights = []
-        endpoint = "bed/" + bed.bedId + "/foundation/outlet"
+    async def get_favorite_sleepnumber(self):
+        if self._bedId == None:
+            await self.get_bed_id()
+        endpoint = "bed/" + self._bedId + "/sleepNumberFavorite"
+        data = await self.__request(endpoint)
+        return data
 
-        for light in BED_LIGHTS:
-            params = {"outletId": light}
-            data = await self.__request(endpoint, params)
+    # async def get_lights(self, bed: Bed):
+    #     """ A collection of lights """
+    #     lights = []
+    #     endpoint = "bed/" + bed.bedId + "/foundation/outlet"
 
-            name: str
-            if light == 1:
-                name = "Sleep Number right nightstand"
-            elif light == 2:
-                name = "Sleep Number left nightstand"
-            elif light == 3:
-                name = "Sleep Number left nightlight"
-            elif light == 4:
-                name = "Sleep Number right nightlight"
-            else:
-                _LOGGER.debug("An unknown light was found. OutletID: %s", str(light))
-                name = ""
+    #     for light in range(4):
+    #         params = {"outletId": light}
+    #         data = await self.__request(endpoint, params)
 
-            if data is not None:
-                lights.append(Light.from_dict(data, name))
+    #         if light == 1:
+    #             name = "Sleep Number right night stand"
+    #         elif light == 2:
+    #             name = "Sleep Number left night stand"
+    #         elif light == 3:
+    #             name = "Sleep Number left night light"
+    #         elif light == 4:
+    #             name = "Sleep Number right night light"
+    #         else:
+    #             _LOGGER.error("An unknown light was found. OutletID: %s", str(light))
+    #             name = ""
 
-        return lights
+    #         if data is not None:
+    #             lights.append(Light.from_dict(data, name))
+
+        # params = {"outletId": light}
+        # data = await self.__request(endpoint, params)
+
+
+        # for light in BED_LIGHTS:
+        #     params = {"outletId": light}
+        #     data = await self.__request(endpoint, params)
+
+        #     name: str
+        #     if light == 1:
+        #         name = "Sleep Number right nightstand"
+        #     elif light == 2:
+        #         name = "Sleep Number left nightstand"
+        #     elif light == 3:
+        #         name = "Sleep Number left nightlight"
+        #     elif light == 4:
+        #         name = "Sleep Number right nightlight"
+        #     else:
+        #         _LOGGER.debug("An unknown light was found. OutletID: %s", str(light))
+        #         name = ""
+
+        #     if data is not None:
+        #         lights.append(Light.from_dict(data, name))
+
+        # return lights
 
     def __feature_check(self, value, digit):
         return ((1 << digit) & value) > 0
@@ -280,12 +329,16 @@ class SleepIQ:
         bed: Bed = await self.get_bed()
         family_status: FamilyStatus = await self.get_family_status()
         sleepers = await self.get_sleepers()
-        bed.lights = await self.get_lights(bed)
+        bed.light1 = await self.get_light_status(1)
+        bed.light2 = await self.get_light_status(2)
+        bed.light3 = await self.get_light_status(3)
+        bed.light4 = await self.get_light_status(4)
         foundation: Foundation = await self.get_foundation(bed)
         bed.foundation = foundation
         foundation_status: Foundation_Status = await self.get_foundation_status(bed)
         bed.foundation.foundation_status = foundation_status
         foundation_features = await self.get_foundation_features(bed)
+        sleep_number_favorite = await self.get_favorite_sleepnumber()
         side: Side
         sleeper: Sleeper
 
@@ -298,11 +351,13 @@ class SleepIQ:
                 for sleeper in sleepers:
                     if bed.sleeperLeftId == sleeper.sleeperId:
                         side.sleeper = sleeper
+                        side.sleeper.favorite = sleep_number_favorite['sleepNumberFavoriteLeft']
             else:
                 bed.right_side = side
                 for sleeper in sleepers:
                     if bed.sleeperRightId == sleeper.sleeperId:
                         side.sleeper = sleeper
+                        side.sleeper.favorite = sleep_number_favorite['sleepNumberFavoriteRight']
 
         return bed
 
