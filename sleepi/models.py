@@ -135,6 +135,46 @@ class FamilyStatus:
             right_side = data["right_side"],
         )
 
+@dataclass
+class FootWarming:
+    """ Defines a light """
+    bedId: str
+    footWarmingStatusLeft: int
+    footWarmingStatusRight: int
+    footWarmingTimerLeft: int
+    footWarmingTimerRight: int
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any], bedId: str):
+        """ Return a light object from the SleepIQ servers """
+        if data is not None:
+            return FootWarming(
+                bedId = bedId,
+                footWarmingStatusLeft = data["footWarmingStatusLeft"],
+                footWarmingStatusRight = data["footWarmingStatusRight"],
+                footWarmingTimerLeft = data["footWarmingTimerLeft"],
+                footWarmingTimerRight = data["footWarmingTimerRight"],
+            )
+
+@dataclass
+class UnderbedLight:
+    """ Defines a light """
+    bedId: str
+    enableAuto: bool
+    prefSyncState: str
+    timer: str
+    name: str
+
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any], name):
+        """ Return a light object from the SleepIQ servers """
+        if data is not None:
+            return UnderbedLight(
+                bedId = data["bedId"],
+                enableAuto = data["enableAuto"],
+                prefSyncState = data["prefSyncState"],
+            )
 
 @dataclass
 class Light:
@@ -144,11 +184,23 @@ class Light:
     setting: int
     timer: str
     name: str
+    autoEnabled: bool
+    lightLevel: str
 
 
     @staticmethod
-    def from_dict(data: Dict[str, Any], name):
+    def from_dict(data: Dict[str, Any], name, lightLevel, autoEnabled):
         """ Return a light object from the SleepIQ servers """
+
+        if 31 <= lightLevel <= 100:
+            lightLevel = "high"
+        elif 2 <= lightLevel <= 30:
+            lightLevel = "medium"
+        elif lightLevel == 1:
+            lightLevel = "low"
+        else:
+            lightLevel = "off"
+
         if data is not None:
             return Light(
                 bedId = data["bedId"],
@@ -156,6 +208,8 @@ class Light:
                 setting = data["setting"],
                 timer = data["timer"],
                 name = name,
+                autoEnabled = autoEnabled,
+                lightLevel = lightLevel,
             )
 
 @dataclass
@@ -216,6 +270,30 @@ class Foundation_Status:
         fsRightPositionTimerMSB = data["fsRightPositionTimerMSB"],
         fsLeftHeadActuatorMotorStatus = data["fsLeftHeadActuatorMotorStatus"],
         fsLeftFootActuatorMotorStatus = data["fsLeftFootActuatorMotorStatus"],
+        )
+
+@dataclass
+class Responsive_Air:
+    """ Define responsive air """
+    adjustmentThreshold: int
+    inBedTimeout: int
+    leftSideEnabled: bool
+    outOfBedTimeout: int
+    pollFrequency: int
+    prefSyncState: str
+    rightSideEnabled: bool
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]):
+        """ Return a responsive air object from the SleepIQ servers """
+        return Responsive_Air(
+            adjustmentThreshold = data["adjustmentThreshold"],
+            inBedTimeout = data["inBedTimeout"],
+            leftSideEnabled = data["leftSideEnabled"],
+            outOfBedTimeout = data["outOfBedTimeout"],
+            pollFrequency = data["pollFrequency"],
+            prefSyncState = data["prefSyncState"],
+            rightSideEnabled = data["rightSideEnabled"],
         )
 
 @dataclass

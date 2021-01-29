@@ -7,12 +7,12 @@ from .const import (
     BED_LIGHTS,
 )
 from .exceptions import SleepiConnectionError, SleepiError, SleepiGenericError
-from .models import Bed, FamilyStatus, Foundation, Foundation_Status, Light, Side, Sleeper
+from .models import Bed, FamilyStatus, FootWarming, Foundation, Foundation_Status, Light, Responsive_Air, Side, Sleeper
 
 from aiohttp import ClientSession
 from aiohttp.client_exceptions import ClientError
 from datetime import timedelta
-from typing import Optional
+from typing import Dict, Optional
 
 
 BASE_URL = "https://prod-api.sleepiq.sleepnumber.com/rest"
@@ -56,6 +56,7 @@ class SleepIQ:
 
         if json_response["key"] is not None:
             self._key = json_response["key"]
+            await self.get_bed_id()
             return True
         else:
             return False
@@ -81,7 +82,7 @@ class SleepIQ:
                 if '_k' not in params:
                     params["_k"] = self._key
             else:
-                raise SleepiGenericError("Help")
+                raise SleepiGenericError("There is no token attached to this request")
         else:
             params["_k"] = self._key
 
@@ -132,6 +133,24 @@ class SleepIQ:
 
         return await response.json()
 
+    async def get_responsive_air_status(self):
+        """ Responsive air status """
+        endpoint = "bed/" + self._bedId + "/responsiveAir"
+        data = await self.__request(endpoint)
+        return Responsive_Air.from_dict(data)
+
+    async def set_responsive_air(self, side: str, setting: bool):
+        """ Set responsive air """
+        responsive_air_status = await self.get_responsive_air_status()
+
+        if side.lower() == "left" or side.lower() == "l":
+            data = {"leftSideEnabled": setting, "rightSideEnabled": responsive_air_status.rightSideEnabled}
+        elif side.lower() == "right" or side.lower() == "r":
+            data = {"leftSideEnabled": responsive_air_status.leftSideEnabled, "rightSideEnabled": setting}
+
+        endpoint = "bed/" + self._bedId + "/responsiveAir"
+        return await self.__request(endpoint, data=data)
+
     async def get_sleepers(self):
         """ Sleepers """
         sleepers = []
@@ -140,15 +159,27 @@ class SleepIQ:
             sleepers.append(Sleeper.from_dict(side))
         return sleepers
 
-    async def get_foundation(self, bed: Bed):
+    async def get_footwarming_status(self):
+        """ Foot warming """
+        endpoint = "bed/" + self._bedId + "/foundation/footwarming"
+        data = await self.__request(endpoint)
+        return FootWarming.from_dict(data, self._bedId)
+
+    async def get_foundation_underbed_light(self):
         """ Foundations """
-        endpoint = "bed/" + bed.bedId + "/foundation/system"
+        endpoint = "bed/" + self._bedId + "/foundation/underbedLight"
         data = await self.__request(endpoint)
         return Foundation.from_dict(data)
 
-    async def get_foundation_status(self, bed: Bed):
+    async def get_foundation(self):
         """ Foundations """
-        endpoint = "bed/" + bed.bedId + "/foundation/status"
+        endpoint = "bed/" + self._bedId + "/foundation/system"
+        data = await self.__request(endpoint)
+        return Foundation.from_dict(data)
+
+    async def get_foundation_status(self):
+        """ Foundations """
+        endpoint = "bed/" + self._bedId + "/foundation/status"
         data = await self.__request(endpoint)
         return Foundation_Status.from_dict(data)
 
@@ -160,24 +191,58 @@ class SleepIQ:
         family_status.append(Side.from_dict(data["beds"][0]["rightSide"], "right"))
         return family_status
 
+    async def set_light_brightness(self, lightLevel: str):
+        """ """
+        if lightLevel.lower() == "high":
+            endpoint = "bed/" + self._bedId + "/foundation/system"
+            data = {"fsLeftUnderbedLightPWM": 100, "fsRightUnderbedLightPWM": 100}
+            await self.__request(endpoint, data=data)
+            await self.turn_off_auto_light()
+        elif lightLevel.lower() == "medium" or lightLevel.lower() == "med":
+            endpoint = "bed/" + self._bedId + "/foundation/system"
+            data = {"fsLeftUnderbedLightPWM": 30, "fsRightUnderbedLightPWM": 30}
+            await self.__request(endpoint, data=data)
+            await self.turn_off_auto_light()
+        elif lightLevel.lower() == "low":
+            endpoint = "bed/" + self._bedId + "/foundation/system"
+            data = {"fsLeftUnderbedLightPWM": 1, "fsRightUnderbedLightPWM": 1}
+            await self.__request(endpoint, data=data)
+            await self.turn_off_auto_light()
+        elif lightLevel.lower() == "off":
+            self.turn_off_light()
+
+    async def turn_on_auto_light(self):
+        """ """
+        endpoint = "bed/" + self._bedId + "/foundation/underbedLight"
+        data = {"enableAuto": True}
+        await self.__request(endpoint, data=data)
+
+    async def turn_off_auto_light(self):
+        """ """
+        endpoint = "bed/" + self._bedId + "/foundation/underbedLight"
+        data = {"enableAuto": False}
+        await self.__request(endpoint, data=data)
+
     async def turn_on_light(
         self,
         outletID: int,
+        lightLevel: str = ""
         ):
         """ Turn on a light """
-        if self._bedId == None:
-            await self.get_bed_id()
+        if lightLevel.lower() == "auto":
+            await self.turn_on_auto_light()
+        else:
+            await self.set_light_brightness(lightLevel)
+
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
         data = {"outletId": outletID, "setting": 1}
-        response = await self.__request(endpoint, data=data)
+        await self.__request(endpoint, data=data)
 
     async def turn_off_light(
         self,
         outletID: int,
         ):
         """ Turn off a light """
-        if self._bedId == None:
-            await self.get_bed_id()
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
         data = {"outletId": outletID, "setting": 0}
         response = await self.__request(endpoint, data=data)
@@ -187,12 +252,12 @@ class SleepIQ:
         outletID: int,
         ):
         """ Get the status of a light """
-        if self._bedId == None:
-            await self.get_bed_id()
-
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
         params = {"outletId": outletID}
         data = await self.__request(endpoint, params)
+
+        endpoint = "bed/" + self._bedId + "/foundation/system"
+        lightLevelData = await self.__request(endpoint)
 
         if outletID == 1:
             name = "Sleep Number right night stand"
@@ -205,7 +270,7 @@ class SleepIQ:
         else:
             name = ""
             _LOGGER.error("An unknown light was found. OutletID: %s", str(outletID))
-        return Light.from_dict(data, name)
+        return Light.from_dict(data, name, lightLevelData["fsLeftUnderbedLightPWM"], True)
 
     async def get_bed_id(self):
         data = await self.__request("bed")
@@ -216,78 +281,26 @@ class SleepIQ:
         data = await self.__request("bed")
         return Bed.from_dict(data)
 
-    async def toggle_light(
-        self,
-        outletID: int,
-        ):
-        """ Get the status of a light """
-        status = await self.get_light_status(outletID)
-        if self._bedId == None:
-            await self.get_bed_id()
+    # async def toggle_light(
+    #     self,
+    #     outletID: int,
+    #     ):
+    #     """ Get the status of a light """
+    #     status = await self.get_light_status(outletID)
+    #     if self._bedId == None:
+    #         await self.get_bed_id()
         
-        endpoint = "bed/" + self._bedId + "/foundation/outlet"
-        data = await self.__request(endpoint)
-        if data["setting"] is True:
-            self.turn_off_light(outletID)
-        else:
-            self.turn_on_light(outletID)
+    #     endpoint = "bed/" + self._bedId + "/foundation/outlet"
+    #     data = await self.__request(endpoint)
+    #     if data["setting"] is True:
+    #         self.turn_off_light(outletID)
+    #     else:
+    #         self.turn_on_light(outletID)
 
     async def get_favorite_sleepnumber(self):
-        if self._bedId == None:
-            await self.get_bed_id()
         endpoint = "bed/" + self._bedId + "/sleepNumberFavorite"
         data = await self.__request(endpoint)
         return data
-
-    # async def get_lights(self, bed: Bed):
-    #     """ A collection of lights """
-    #     lights = []
-    #     endpoint = "bed/" + bed.bedId + "/foundation/outlet"
-
-    #     for light in range(4):
-    #         params = {"outletId": light}
-    #         data = await self.__request(endpoint, params)
-
-    #         if light == 1:
-    #             name = "Sleep Number right night stand"
-    #         elif light == 2:
-    #             name = "Sleep Number left night stand"
-    #         elif light == 3:
-    #             name = "Sleep Number left night light"
-    #         elif light == 4:
-    #             name = "Sleep Number right night light"
-    #         else:
-    #             _LOGGER.error("An unknown light was found. OutletID: %s", str(light))
-    #             name = ""
-
-    #         if data is not None:
-    #             lights.append(Light.from_dict(data, name))
-
-        # params = {"outletId": light}
-        # data = await self.__request(endpoint, params)
-
-
-        # for light in BED_LIGHTS:
-        #     params = {"outletId": light}
-        #     data = await self.__request(endpoint, params)
-
-        #     name: str
-        #     if light == 1:
-        #         name = "Sleep Number right nightstand"
-        #     elif light == 2:
-        #         name = "Sleep Number left nightstand"
-        #     elif light == 3:
-        #         name = "Sleep Number left nightlight"
-        #     elif light == 4:
-        #         name = "Sleep Number right nightlight"
-        #     else:
-        #         _LOGGER.debug("An unknown light was found. OutletID: %s", str(light))
-        #         name = ""
-
-        #     if data is not None:
-        #         lights.append(Light.from_dict(data, name))
-
-        # return lights
 
     def __feature_check(self, value, digit):
         return ((1 << digit) & value) > 0
