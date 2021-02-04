@@ -138,22 +138,37 @@ class FamilyStatus:
 @dataclass
 class FootWarming:
     """ Defines a light """
-    bedId: str
     footWarmingStatusLeft: int
     footWarmingStatusRight: int
     footWarmingTimerLeft: int
     footWarmingTimerRight: int
 
     @staticmethod
-    def from_dict(data: Dict[str, Any], bedId: str):
+    def from_dict(data: Dict[str, Any]):
         """ Return a light object from the SleepIQ servers """
         if data is not None:
             return FootWarming(
-                bedId = bedId,
                 footWarmingStatusLeft = data["footWarmingStatusLeft"],
                 footWarmingStatusRight = data["footWarmingStatusRight"],
                 footWarmingTimerLeft = data["footWarmingTimerLeft"],
                 footWarmingTimerRight = data["footWarmingTimerRight"],
+            )
+
+@dataclass
+class PrivacyMode:
+    """ Defines privacy  mode """
+    bedId: str
+    accountId: str
+    pauseMode: str
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]):
+        """ Return a light object from the SleepIQ servers """
+        if data is not None:
+            return PrivacyMode(
+                bedId = data["bedId"],
+                accountId = data["accountId"],
+                pauseMode = data["pauseMode"],
             )
 
 @dataclass
@@ -351,11 +366,15 @@ class Bed:
     reference: str
     left_side: Side
     right_side: Side
-    light1: Dict 
-    light2: Dict
-    light3: Dict
-    light4: Dict
+    lights: List
+    # light1: Dict 
+    # light2: Dict
+    # light3: Dict
+    # light4: Dict
     foundation: Foundation
+    responsive_air: Responsive_Air
+    privacy_mode: PrivacyMode
+    foot_warming: FootWarming
 
     @staticmethod
     def from_dict(data: Dict[str, Any]):
@@ -385,9 +404,13 @@ class Bed:
             reference = data["beds"][0]["reference"],
             left_side = None,
             right_side = None,
-            light1 = {},
-            light2 = {},
-            light3 = {},
-            light4 = {},
+            lights = [],
+            # light1 = {},
+            # light2 = {},
+            # light3 = {},
+            # light4 = {},
             foundation = None,
+            responsive_air = None,
+            privacy_mode =  None,
+            foot_warming = None,
         )

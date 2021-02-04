@@ -7,7 +7,7 @@ from .const import (
     BED_LIGHTS,
 )
 from .exceptions import SleepiConnectionError, SleepiError, SleepiGenericError
-from .models import Bed, FamilyStatus, FootWarming, Foundation, Foundation_Status, Light, Responsive_Air, Side, Sleeper
+from .models import Bed, FamilyStatus, FootWarming, Foundation, Foundation_Status, Light, PrivacyMode, Responsive_Air, Side, Sleeper
 
 from aiohttp import ClientSession
 from aiohttp.client_exceptions import ClientError
@@ -19,6 +19,31 @@ BASE_URL = "https://prod-api.sleepiq.sleepnumber.com/rest"
 DEFAULT_STATE_UPDATE_INTERVAL = timedelta(seconds=5)
 DEFAULT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.95 Safari/537.36'}
 _LOGGER = logging.getLogger(__name__)
+
+LEFT = "left"
+RIGHT = "right"
+LEFT_SIDE = ["l", LEFT]
+RIGHT_SIDE = ["r", RIGHT]
+BOTH_SIDES = [LEFT_SIDE, RIGHT_SIDE]
+
+HEAD = ['h', 'head']
+FOOT = ['f', 'foot']
+
+FAVORITE = 1
+READ = 2
+WATCH_TV = 3
+FLAT = 4
+ZERO_G = 5
+SNORE = 6
+
+BED_PRESETS = [
+        FAVORITE,
+        READ,
+        WATCH_TV,
+        FLAT,
+        ZERO_G,
+        SNORE
+    ]
 
 class SleepIQ:
     """ Define a class for interacting with the SleepIQ REST APIs """
@@ -35,8 +60,6 @@ class SleepIQ:
         self._bedId: str = None
         self._key = None
 
-        # self.login(username, password, websession)
-
     async def login(self):
         """ Log into the API """
         if not self._username or not self._password:
@@ -50,13 +73,22 @@ class SleepIQ:
             )
 
         if response.status == 401:
-            raise ValueError("Incorect username or password")
+            raise ValueError("HTTP Error 401: Incorect username or password")
+        elif response.status == 502:  # 502 Session Invalid
+            await self.login()
+            _LOGGER.error("HTTP error 502: Session is invalid") 
+        elif response.status == 503:  # 503 Server Error
+            await response.raise_for_status()
+            _LOGGER.error("HTTP error 503: Server error") 
+        elif response.status == 400:  # 400 bad request
+            await response.raise_for_status()
+            _LOGGER.error("HTTP error 400: Bad request") 
         
         json_response = await response.json()
 
         if json_response["key"] is not None:
             self._key = json_response["key"]
-            await self.get_bed_id()
+            # await self.get_bed_id()
             return True
         else:
             return False
@@ -86,6 +118,8 @@ class SleepIQ:
         else:
             params["_k"] = self._key
 
+        print(f"Querying {url} with key: {self._key}")
+
         try:
             response = await self._websession.request(
                 method,
@@ -99,17 +133,18 @@ class SleepIQ:
                     return None
                 else:
                     await self.login()
-                    _LOGGER.error("404 error") 
+                    _LOGGER.error("Http error 404: Not found") 
             if response.status == 401: # 401 Unauthorized
-                _LOGGER.error("401 error") 
+                _LOGGER.error("HTTP error 401: Unauthorized") 
                 await self.login()
             elif response.status == 502:  # 502 Session Invalid
                 await self.login()
-                _LOGGER.error("502 error") 
+                _LOGGER.error("HTTP error 502: Session is invalid") 
             elif response.status == 503:  # 503 Server Error
                 await response.raise_for_status()
-                _LOGGER.error("503 error") 
+                _LOGGER.error("HTTP error 503: Server error") 
             elif response.status == 400:  # 400 bad request
+                _LOGGER.error("HTTP error 400: Bad request")
                 await response.raise_for_status()
         except asyncio.TimeoutError as exception:
             raise SleepiConnectionError(
@@ -133,20 +168,50 @@ class SleepIQ:
 
         return await response.json()
 
-    async def get_responsive_air_status(self):
+    async def get_privacy_mode(self):
+        """ Get the status of privacy mode """
+        endpoint = "bed/" + self._bedId + "/pauseMode"
+        data = await self.__request(endpoint)
+        return PrivacyMode.from_dict(data)
+
+    async def turn_on_privacy_mode(self):
+        """ Get the status of privacy mode """
+        endpoint = "bed/" + self._bedId + "/pauseMode"
+        data = {}
+        params = {"mode": "on"}
+        return await self.__request(endpoint, data=data, params=params)
+
+    async def turn_off_privacy_mode(self):
+        """ Get the status of privacy mode """
+        endpoint = "bed/" + self._bedId + "/pauseMode"
+        data = {}
+        params = {"mode": "off"}
+        return await self.__request(endpoint, data=data, params=params)
+
+    async def get_responsive_air(self):
         """ Responsive air status """
         endpoint = "bed/" + self._bedId + "/responsiveAir"
         data = await self.__request(endpoint)
         return Responsive_Air.from_dict(data)
 
-    async def set_responsive_air(self, side: str, setting: bool):
+    async def turn_on_responsive_air(self, side: str):
         """ Set responsive air """
-        responsive_air_status = await self.get_responsive_air_status()
+        data = None
+        if side.lower() in LEFT_SIDE:
+            data = {"leftSideEnabled": True}
+        elif side.lower() in RIGHT_SIDE:
+            data = {"rightSideEnabled": True}
 
-        if side.lower() == "left" or side.lower() == "l":
-            data = {"leftSideEnabled": setting, "rightSideEnabled": responsive_air_status.rightSideEnabled}
-        elif side.lower() == "right" or side.lower() == "r":
-            data = {"leftSideEnabled": responsive_air_status.leftSideEnabled, "rightSideEnabled": setting}
+        endpoint = "bed/" + self._bedId + "/responsiveAir"
+        return await self.__request(endpoint, data=data)
+
+    async def turn_off_responsive_air(self, side: str):
+        """ Set responsive air """
+        data = None
+        if side.lower() in LEFT_SIDE:
+            data = {"leftSideEnabled": False}
+        elif side.lower() in RIGHT_SIDE:
+            data = {"rightSideEnabled": False}
 
         endpoint = "bed/" + self._bedId + "/responsiveAir"
         return await self.__request(endpoint, data=data)
@@ -159,11 +224,44 @@ class SleepIQ:
             sleepers.append(Sleeper.from_dict(side))
         return sleepers
 
-    async def get_footwarming_status(self):
+    async def get_footwarming(self):
         """ Foot warming """
         endpoint = "bed/" + self._bedId + "/foundation/footwarming"
         data = await self.__request(endpoint)
-        return FootWarming.from_dict(data, self._bedId)
+        return FootWarming.from_dict(data)
+
+    async def turn_on_foot_warming(self, side, setting, timer=120):
+        """ Foot warming """
+        data = None
+        if side.lower() in LEFT_SIDE:
+            if setting == "low":
+                data = {"footWarmingTempLeft": 31, "footWarmingTimerLeft": timer}
+            elif setting == "medium" or setting == "med":
+                data = {"footWarmingTempLeft": 57, "footWarmingTimerLeft": timer}
+            elif setting == "low":
+                data = {"footWarmingTempLeft": 72, "footWarmingTimerLeft": timer}
+
+        if side.lower() in RIGHT_SIDE:
+            if setting == "low":
+                data = {"footWarmingTempRight": 31, "footWarmingTimerRight": timer}
+            elif setting == "medium" or setting == "med":
+                data = {"footWarmingTempRight": 57, "footWarmingTimerRight": timer}
+            elif setting == "low":
+                data = {"footWarmingTempRight": 72, "footWarmingTimerRight": timer}
+
+        endpoint = "bed/" + self._bedId + "/foundation/footwarming"
+        return await self.__request(endpoint, data=data)
+
+    async def turn_off_foot_warming(self, side):
+        """ Foot warming """
+        data = None
+        if side.lower() in RIGHT_SIDE:
+            data = {"footWarmingTempRight": 0, "footWarmingTimerRight": 120}
+        elif side.lower() in LEFT_SIDE:
+            data = {"footWarmingTempLeft": 0, "footWarmingTimerLeft": 120}
+
+        endpoint = "bed/" + self._bedId + "/foundation/footwarming"
+        return await self.__request(endpoint, data=data)
 
     async def get_foundation_underbed_light(self):
         """ Foundations """
@@ -198,7 +296,7 @@ class SleepIQ:
             data = {"fsLeftUnderbedLightPWM": 100, "fsRightUnderbedLightPWM": 100}
             await self.__request(endpoint, data=data)
             await self.turn_off_auto_light()
-        elif lightLevel.lower() == "medium" or lightLevel.lower() == "med":
+        elif lightLevel.lower() in ('medium', 'med'):
             endpoint = "bed/" + self._bedId + "/foundation/system"
             data = {"fsLeftUnderbedLightPWM": 30, "fsRightUnderbedLightPWM": 30}
             await self.__request(endpoint, data=data)
@@ -245,62 +343,155 @@ class SleepIQ:
         """ Turn off a light """
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
         data = {"outletId": outletID, "setting": 0}
-        response = await self.__request(endpoint, data=data)
+        await self.__request(endpoint, data=data)
 
     async def get_light_status(
         self,
-        outletID: int,
+        outletID: int = 0,
+        lightLevelData: int = 0,
         ):
         """ Get the status of a light """
+        # endpoint = "bed/" + self._bedId + "/foundation/system"
+        # lightLevelData = await self.__request(endpoint)
+        lights = []
+
         endpoint = "bed/" + self._bedId + "/foundation/outlet"
-        params = {"outletId": outletID}
-        data = await self.__request(endpoint, params)
-
-        endpoint = "bed/" + self._bedId + "/foundation/system"
-        lightLevelData = await self.__request(endpoint)
-
-        if outletID == 1:
-            name = "Sleep Number right night stand"
-        elif outletID == 2:
-            name = "Sleep Number left night stand"
-        elif outletID == 3:
-            name = "Sleep Number left night light"
-        elif outletID == 4:
-            name = "Sleep Number right night light"
+        if outletID == 0:
+            for light in range(1, 5):
+                params = {"outletId": light}
+                data = await self.__request(endpoint, params)
+                name = f"Sleep Number light {light}"
+                lights.append(Light.from_dict(data, name, lightLevelData, True))
         else:
-            name = ""
-            _LOGGER.error("An unknown light was found. OutletID: %s", str(outletID))
-        return Light.from_dict(data, name, lightLevelData["fsLeftUnderbedLightPWM"], True)
+                params = {"outletId": outletID}
+                data = await self.__request(endpoint, params)
+                name = f"Sleep Number light {outletID}"
+                lights.append(Light.from_dict(data, name, lightLevelData, True))
 
-    async def get_bed_id(self):
+        return lights
+
+
+        # endpoint = "bed/" + self._bedId + "/foundation/outlet"
+        # params = {"outletId": outletID}
+        # data = await self.__request(endpoint, params)
+
+
+        # if outletID == 1:
+        #     name = "Sleep Number right night stand"
+        # elif outletID == 2:
+        #     name = "Sleep Number left night stand"
+        # elif outletID == 3:
+        #     name = "Sleep Number left night light"
+        # elif outletID == 4:
+        #     name = "Sleep Number right night light"
+        # else:
+        #     name = ""
+        #     _LOGGER.error("An unknown light was found. OutletID: %s", str(outletID))
+
+        # return Light.from_dict(data, name, lightLevelData["fsLeftUnderbedLightPWM"], True)
+
+    async def get_bed_id(self) -> str:
         data = await self.__request("bed")
-        self._bedId = str(data["beds"][0]["bedId"]) 
+        self._bedId = str(data["beds"][0]["bedId"])
+        return str(data["beds"][0]["bedId"])
 
     async def get_bed(self) -> Bed:
         """ Get the latest bed information from SleepIQ """
         data = await self.__request("bed")
+        self._bedId = str(data["beds"][0]["bedId"])
         return Bed.from_dict(data)
 
-    # async def toggle_light(
-    #     self,
-    #     outletID: int,
-    #     ):
-    #     """ Get the status of a light """
-    #     status = await self.get_light_status(outletID)
-    #     if self._bedId == None:
-    #         await self.get_bed_id()
+    async def set_preset_foundation_position(self, preset: int, side: str, slowSpeed = False):
+        """ Set a specific side to a preset foundation position """
+        # preset 1-6
+        # side "R" or "L"
+        # slowSpeed False=fast, True=slow
+        #
+        if side.lower() in RIGHT_SIDE:
+            side = "R"
+        elif side.lower() in LEFT_SIDE:
+            side = "L"
+        else:
+            raise ValueError("Side mut be one of the following: left, right, L or R")
+
+        if preset in BED_PRESETS:
+            data = {'preset':preset,'side':side,'speed':1 if slowSpeed else 0}
+            self.__request('/bed/' + self._bedId +'/foundation/preset', data)
+            return True
+        else:
+            raise ValueError("Invalid preset")
+
+    async def set_foundation_position(self, side, actuator, position, slowSpeed=False):
+        #
+        # side "R" or "L"
+        # actuator "H" or "F" (head or foot)
+        # position 0-100
+        # slowSpeed False=fast, True=slow
+        #
+        if not 0 <= position <= 100:
+            raise ValueError("Invalid position. It must be between 0 and 100")
+        if side.lower() in RIGHT_SIDE:
+            side = "R"
+        elif side.lower() in LEFT_SIDE:
+            side = "L"
+        else:
+            raise ValueError("Side mut be one of the following: left, right, L or R")
         
-    #     endpoint = "bed/" + self._bedId + "/foundation/outlet"
-    #     data = await self.__request(endpoint)
-    #     if data["setting"] is True:
-    #         self.turn_off_light(outletID)
-    #     else:
-    #         self.turn_on_light(outletID)
+        if actuator.lower() in HEAD:
+            actuator = 'H'
+        elif actuator.lower() in FOOT:
+            actuator = 'F'
+        else:
+            raise ValueError("Actuator must be one of the following: head, foot, H or F")
+
+        endpoint = "bed/" + self._bedId + "/foundation/adjustment/micro"
+        data = {'position': position, 'side': side, 'actuator': actuator, 'speed': 1 if slowSpeed else 0}
+        await self.__request(endpoint, data=data)
+
+    async def get_sleepnumber(self, side):
+        """ Return the currently assigned sleep number to a specified side """
+        endpoint = "bed/" + self._bedId + "/sleepNumber"
+        
+        if side.lower() in LEFT_SIDE:
+            params = {'side': 'L'}
+        elif side.lower() in RIGHT_SIDE:
+            params = {'side': 'R'}
+        data = await self.__request(endpoint, params=params)
+        return data["sleepNumber"] 
+
+    async def set_sleepnumber(self, side: str, setting: int):
+
+        if not 0 <= setting <= 100:
+            raise ValueError("Invalid SleepNumber. It must be between 1 and 100")
+        if side.lower() in RIGHT_SIDE:
+            side = "R"
+        elif side.lower() in LEFT_SIDE:
+            side = "L"
+        else:
+            raise ValueError("Side mut be one of the following: left, right, L or R")
+        
+        endpoint = "bed/" + self._bedId + "/sleepNumber"
+        data = {'side': side, "sleepNumber": int(round(setting/5))*5}
+        await self.__request(endpoint, data=data)     
 
     async def get_favorite_sleepnumber(self):
         endpoint = "bed/" + self._bedId + "/sleepNumberFavorite"
-        data = await self.__request(endpoint)
-        return data
+        return await self.__request(endpoint)
+
+    async def set_favorite_sleepnumber(self, side: str, setting: int):
+
+        if not 0 <= setting <= 100:
+            raise ValueError("Invalid SleepNumber. It must be between 1 and 100")
+        if side.lower() in LEFT_SIDE:
+            side = "R"
+        elif side.lower() in RIGHT_SIDE:
+            side = "L"
+        else:
+            raise ValueError("Side mut be one of the following: left, right, L or R")
+        
+        endpoint = "bed/" + self._bedId + "/sleepNumberFavorite"
+        data = {'side': side, "sleepNumberFavorite": int(round(setting/5))*5}
+        await self.__request(endpoint, data=data)
 
     def __feature_check(self, value, digit):
         return ((1 << digit) & value) > 0
@@ -342,21 +533,16 @@ class SleepIQ:
         bed: Bed = await self.get_bed()
         family_status: FamilyStatus = await self.get_family_status()
         sleepers = await self.get_sleepers()
-        bed.light1 = await self.get_light_status(1)
-        bed.light2 = await self.get_light_status(2)
-        bed.light3 = await self.get_light_status(3)
-        bed.light4 = await self.get_light_status(4)
-        foundation: Foundation = await self.get_foundation(bed)
-        bed.foundation = foundation
-        foundation_status: Foundation_Status = await self.get_foundation_status(bed)
-        bed.foundation.foundation_status = foundation_status
-        foundation_features = await self.get_foundation_features(bed)
+        bed.foundation = await self.get_foundation()
+        bed.lights = await self.get_light_status(lightLevelData=bed.foundation.fsLeftUnderbedLightPWM)
+        bed.foundation.foundation_status = await self.get_foundation_status()
+        bed.foundation.features = await self.get_foundation_features(bed)
         sleep_number_favorite = await self.get_favorite_sleepnumber()
+        bed.responsive_air = await self.get_responsive_air()
+        bed.privacy_mode = await self.get_privacy_mode()
+        bed.foot_warming = await self.get_footwarming()
         side: Side
         sleeper: Sleeper
-
-        for foundation_feature in foundation_features:
-            bed.foundation.features = foundation_feature
 
         for side in family_status:
             if side.side == "left":
